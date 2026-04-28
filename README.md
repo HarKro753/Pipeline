@@ -8,7 +8,6 @@ A side-by-side comparison of batch processing approaches using real-world **Open
 - Java MapReduce project structured with **Domain-Driven Design** (Domain, Application, Infrastructure layers)
 - Real-world normalization of OpenFoodFacts CSV (200+ columns, N:M tag relations)
 - PostgreSQL persistence with connection via `.env`
-- Classic word count example in both frameworks
 - Detailed [comparison document](docs/comparison.md) with code snippets and trade-offs
 
 ## Architecture
@@ -20,7 +19,7 @@ mapreduce-ddd/
 │   ├── valueobject/         # Barcode, NutriScore, NutrientInfo
 │   └── repository/          # Interfaces only
 ├── application/             # Use case orchestration, DTOs
-│   ├── service/             # NormalizationService, WordCountService
+│   ├── service/             # NormalizationService
 │   └── dto/                 # ProductDTO, TagRelationDTO
 └── infrastructure/          # Framework & DB implementations
     ├── config/              # DatabaseConfig (.env loader)
@@ -52,7 +51,6 @@ Input (CSV) → Map (extract key-value pairs) → Shuffle & Sort (group by key) 
 | ------------------------ | ------------------------- | --------------------------------- |
 | **Language**             | Java                      | Python                            |
 | **Intermediate storage** | Disk (HDFS)               | In-memory (RAM)                   |
-| **Word count**           | ~40 lines                 | ~5 lines                          |
 | **Execution model**      | Map → Reduce              | DAG (flexible pipeline)           |
 | **Speed**                | Baseline                  | 10–100x faster                    |
 | **Best for**             | Simple ETL, huge datasets | Iterative, interactive, streaming |
@@ -69,11 +67,6 @@ cd mapreduce-ddd
 # Build
 mvn clean package
 
-# Run word count
-hadoop jar target/mapreduce-ddd-1.0.0.jar \
-  com.pipeline.application.service.WordCountService \
-  input/text.txt output/wordcount
-
 # Run OpenFoodFacts normalization (writes to Postgres)
 hadoop jar target/mapreduce-ddd-1.0.0.jar \
   com.pipeline.application.service.NormalizationService \
@@ -85,9 +78,6 @@ hadoop jar target/mapreduce-ddd-1.0.0.jar \
 ```bash
 cd spark
 pip install -r requirements.txt
-
-# Word count
-spark-submit word_count.py
 
 # OpenFoodFacts normalization (writes to Postgres)
 spark-submit --jars /path/to/postgresql-42.7.3.jar normalize_foodfacts.py

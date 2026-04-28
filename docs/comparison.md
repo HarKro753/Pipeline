@@ -11,40 +11,6 @@
 | **API**                  | Verbose Java classes (Mapper/Reducer) | Concise DSL (Python, Scala, Java, R)            |
 | **Streaming**            | Batch only                            | Structured Streaming (micro-batch + continuous) |
 
-## Code Comparison — Word Count
-
-### MapReduce (Java) — ~40 lines
-
-```java
-// Mapper: emit (word, 1) for each token
-public class WordCountMapper extends Mapper<Object, Text, Text, IntWritable> {
-    public void map(Object key, Text value, Context context) {
-        StringTokenizer itr = new StringTokenizer(value.toString());
-        while (itr.hasMoreTokens()) {
-            context.write(new Text(itr.nextToken()), new IntWritable(1));
-        }
-    }
-}
-
-// Reducer: sum all 1s for each word
-public class WordCountReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
-    public void reduce(Text key, Iterable<IntWritable> values, Context context) {
-        int sum = 0;
-        for (IntWritable val : values) sum += val.get();
-        context.write(key, new IntWritable(sum));
-    }
-}
-```
-
-### Spark (Python) — 5 lines
-
-```python
-lines = spark.read.text("input.txt")
-words = lines.select(explode(split(col("value"), "\\s+")).alias("word"))
-word_counts = words.groupBy("word").count().orderBy("count", ascending=False)
-word_counts.show()
-```
-
 ## When to Use What
 
 | Use Case                             | MapReduce                     | Spark                       |
