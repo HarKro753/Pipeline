@@ -1,0 +1,33 @@
+name: Build MapReduce
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mapreduce-ddd/**"
+      - ".github/workflows/build-mapreduce.yml"
+
+concurrency:
+  group: build-mapreduce
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: harkro123
+          password: ${{ secrets.DOCKER_PAT }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: mapreduce-ddd
+          push: true
+          tags: harkro123/pipeline-mapreduce:latest
+          cache-from: type=gha,scope=mapreduce
+          cache-to: type=gha,scope=mapreduce,mode=max

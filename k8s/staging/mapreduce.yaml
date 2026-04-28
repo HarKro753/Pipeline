@@ -1,0 +1,191 @@
+# ─────────────────────────────────────────────────────────────────────
+# Pipeline — staging MapReduce batch job
+#
+# Deployed on push to main. Image tag: latest.
+# ─────────────────────────────────────────────────────────────────────
+
+# ==============================================================
+# Hadoop NameNode — staging
+# ==============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hadoop-namenode-staging
+  namespace: default
+  labels:
+    app: hadoop-namenode
+    env: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hadoop-namenode
+      env: staging
+  template:
+    metadata:
+      labels:
+        app: hadoop-namenode
+        env: staging
+    spec:
+      containers:
+        - name: namenode
+          image: apache/hadoop:3.3.6
+          command: ["hdfs", "namenode"]
+          ports:
+            - containerPort: 9000
+              name: hdfs
+            - containerPort: 9870
+              name: webui
+          env:
+            - name: HDFS_NAMENODE_OPTS
+              value: "-Dfs.defaultFS=hdfs://hadoop-namenode-staging:9000"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hadoop-namenode-staging
+  namespace: default
+  labels:
+    app: hadoop-namenode
+    env: staging
+spec:
+  type: ClusterIP
+  selector:
+    app: hadoop-namenode
+    env: staging
+  ports:
+    - name: hdfs
+      port: 9000
+      targetPort: 9000
+    - name: webui
+      port: 9870
+      targetPort: 9870
+
+---
+# ==============================================================
+# Hadoop DataNode — staging (scalable)
+# ==============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-datanode-staging
+  namespace: default
+  labels:
+    app: hadoop-datanode
+    env: staging
+spec:
+  serviceName: hadoop-datanode-staging
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hadoop-datanode
+      env: staging
+  template:
+    metadata:
+      labels:
+        app: hadoop-datanode
+        env: staging
+    spec:
+      containers:
+        - name: datanode
+          image: apache/hadoop:3.3.6
+          command: ["hdfs", "datanode"]
+          ports:
+            - containerPort: 9864
+              name: datanode
+          env:
+            - name: HDFS_DATANODE_OPTS
+              value: "-Dfs.defaultFS=hdfs://hadoop-namenode-staging:9000"
+          volumeMounts:
+            - name: datanode-data
+              mountPath: /hadoop/dfs/data
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+  volumeClaimTemplates:
+    - metadata:
+        name: datanode-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hadoop-datanode-staging
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    app: hadoop-datanode
+    env: staging
+  ports:
+    - name: datanode
+      port: 9864
+
+---
+# ==============================================================
+# MapReduce Job — staging (CronJob for scheduled runs)
+# ==============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mapreduce-normalization-staging
+  namespace: default
+  labels:
+    app: pipeline-mapreduce
+    env: staging
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: mapreduce-job
+              image: harkro123/pipeline-mapreduce:latest
+              command:
+                - hadoop
+                - jar
+                - /app/mapreduce-ddd-1.0.0.jar
+                - com.pipeline.infrastructure.mapreduce.NormalizationJobRunner
+                - s3a://pipeline-data-staging/foodfacts.csv
+                - s3a://pipeline-data-staging/output/
+              env:
+                - name: POSTGRES_URL
+                  value: "jdbc:postgresql://postgres-staging:5432/pipeline_db"
+                - name: POSTGRES_USER
+                  value: "postgres"
+                - name: POSTGRES_PASSWORD
+                  value: "changeme"
+                - name: S3_ENDPOINT
+                  value: "https://s3.amazonaws.com"
+                - name: S3_ACCESS_KEY
+                  value: "changeme"
+                - name: S3_SECRET_KEY
+                  value: "changeme"
+              resources:
+                requests:
+                  memory: "2Gi"
+                  cpu: "1000m"
+                limits:
+                  memory: "4Gi"
+                  cpu: "2000m"

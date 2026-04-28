@@ -1,0 +1,214 @@
+# ─────────────────────────────────────────────────────────────────────
+# Pipeline — production MapReduce batch job
+#
+# Deployed on version tag push (v*). Image tags replaced by CI.
+# ─────────────────────────────────────────────────────────────────────
+
+# ==============================================================
+# Hadoop NameNode — prod
+# ==============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hadoop-namenode-prod
+  namespace: default
+  labels:
+    app: hadoop-namenode
+    env: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hadoop-namenode
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: hadoop-namenode
+        env: prod
+    spec:
+      containers:
+        - name: namenode
+          image: apache/hadoop:3.3.6
+          command: ["hdfs", "namenode"]
+          ports:
+            - containerPort: 9000
+              name: hdfs
+            - containerPort: 9870
+              name: webui
+          env:
+            - name: HDFS_NAMENODE_OPTS
+              value: "-Dfs.defaultFS=hdfs://hadoop-namenode-prod:9000"
+          volumeMounts:
+            - name: namenode-data
+              mountPath: /hadoop/dfs/name
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      volumes:
+        - name: namenode-data
+          persistentVolumeClaim:
+            claimName: namenode-data-prod
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: namenode-data-prod
+  namespace: default
+  labels:
+    app: hadoop-namenode
+    env: prod
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hadoop-namenode-prod
+  namespace: default
+  labels:
+    app: hadoop-namenode
+    env: prod
+spec:
+  type: ClusterIP
+  selector:
+    app: hadoop-namenode
+    env: prod
+  ports:
+    - name: hdfs
+      port: 9000
+      targetPort: 9000
+    - name: webui
+      port: 9870
+      targetPort: 9870
+
+---
+# ==============================================================
+# Hadoop DataNode — prod (scalable, persistent storage)
+# ==============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-datanode-prod
+  namespace: default
+  labels:
+    app: hadoop-datanode
+    env: prod
+spec:
+  serviceName: hadoop-datanode-prod
+  replicas: 5
+  selector:
+    matchLabels:
+      app: hadoop-datanode
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: hadoop-datanode
+        env: prod
+    spec:
+      containers:
+        - name: datanode
+          image: apache/hadoop:3.3.6
+          command: ["hdfs", "datanode"]
+          ports:
+            - containerPort: 9864
+              name: datanode
+          env:
+            - name: HDFS_DATANODE_OPTS
+              value: "-Dfs.defaultFS=hdfs://hadoop-namenode-prod:9000"
+          volumeMounts:
+            - name: datanode-data
+              mountPath: /hadoop/dfs/data
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2000m"
+            limits:
+              memory: "8Gi"
+              cpu: "4000m"
+  volumeClaimTemplates:
+    - metadata:
+        name: datanode-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 200Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hadoop-datanode-prod
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    app: hadoop-datanode
+    env: prod
+  ports:
+    - name: datanode
+      port: 9864
+
+---
+# ==============================================================
+# MapReduce Job — prod (CronJob for scheduled runs)
+# ==============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mapreduce-normalization-prod
+  namespace: default
+  labels:
+    app: pipeline-mapreduce
+    env: prod
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: mapreduce-job
+              image: harkro123/pipeline-mapreduce:IMAGE_TAG
+              command:
+                - hadoop
+                - jar
+                - /app/mapreduce-ddd-1.0.0.jar
+                - com.pipeline.infrastructure.mapreduce.NormalizationJobRunner
+                - -Dpipeline.num.reducers=64
+                - s3a://pipeline-data-prod/foodfacts.csv
+                - s3a://pipeline-data-prod/output/
+              env:
+                - name: POSTGRES_URL
+                  value: "jdbc:postgresql://postgres-prod:5432/pipeline_db"
+                - name: POSTGRES_USER
+                  value: "postgres"
+                - name: POSTGRES_PASSWORD
+                  value: "changeme"
+                - name: S3_ENDPOINT
+                  value: "https://s3.amazonaws.com"
+                - name: S3_ACCESS_KEY
+                  value: "changeme"
+                - name: S3_SECRET_KEY
+                  value: "changeme"
+              resources:
+                requests:
+                  memory: "4Gi"
+                  cpu: "2000m"
+                limits:
+                  memory: "8Gi"
+                  cpu: "4000m"
