@@ -130,6 +130,10 @@ CREATE TABLE product_nutrient_levels  (id SERIAL PRIMARY KEY, product_barcode VA
 - **Hadoop 3.3+** or **AWS EMR**
 - **PostgreSQL 15+** or **Amazon RDS**
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Contributing
 
 Found an issue or want to improve the pipeline? Open an issue or submit a pull request.
