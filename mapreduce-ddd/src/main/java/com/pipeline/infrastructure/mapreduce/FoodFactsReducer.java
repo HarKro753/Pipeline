@@ -30,7 +30,7 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
 
     @Override
     protected void setup(Context context) {
-        config = new DatabaseConfig();
+        config = new DatabaseConfig(context.getConfiguration());
 
         Map<String, ProductRelationRepository> repos = Map.ofEntries(
                 Map.entry("packaging", new PostgresProductPackagingRepository(config)),

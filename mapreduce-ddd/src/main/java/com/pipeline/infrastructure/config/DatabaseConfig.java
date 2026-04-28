@@ -4,11 +4,16 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
-import io.github.cdimascio.dotenv.Dotenv;
+import org.apache.hadoop.conf.Configuration;
 
 /**
- * Loads Postgres connection settings from .env and provides connection pooling.
- * Reuses a single connection per thread to avoid connection churn at TB scale.
+ * Loads Postgres connection settings from Hadoop Configuration.
+ *
+ * The NormalizationJobRunner reads .env on the driver node and injects
+ * credentials into Hadoop Configuration, which is then serialized and
+ * distributed to all mapper/reducer tasks across the cluster.
+ *
+ * Reuses a single connection per reducer task to avoid connection churn at TB scale.
  */
 public class DatabaseConfig {
 
@@ -17,15 +22,15 @@ public class DatabaseConfig {
     private final String password;
     private Connection cachedConnection;
 
-    public DatabaseConfig() {
-        Dotenv dotenv = Dotenv.configure()
-                .directory("../")
-                .filename(".env")
-                .load();
+    public DatabaseConfig(Configuration hadoopConf) {
+        this.url = hadoopConf.get("pipeline.db.url");
+        this.user = hadoopConf.get("pipeline.db.user");
+        this.password = hadoopConf.get("pipeline.db.password");
 
-        this.url = dotenv.get("POSTGRES_URL");
-        this.user = dotenv.get("POSTGRES_USER");
-        this.password = dotenv.get("POSTGRES_PASSWORD");
+        if (url == null || user == null) {
+            throw new IllegalStateException(
+                    "Database configuration missing. Ensure POSTGRES_URL/USER/PASSWORD are set in .env");
+        }
     }
 
     public synchronized Connection getConnection() throws SQLException {

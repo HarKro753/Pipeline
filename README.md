@@ -35,15 +35,25 @@ mapreduce-ddd/
 | **Application**    | Orchestrates use cases                  | Domain                          |
 | **Infrastructure** | Hadoop, PostgreSQL, config              | Domain, Application, Frameworks |
 
-### MapReduce Phases
+### How It Scales to Terabytes
+
+The input CSV lives on S3-compatible storage. Hadoop's `TextInputFormat` splits it into **128MB InputSplits** — each mapper only downloads and processes its own chunk via S3 range requests. A 1TB file creates ~8000 mappers running in parallel across the cluster. No single node ever touches the full file.
 
 ```
-Input (CSV) → Map (extract key-value pairs) → Shuffle & Sort (group by key) → Reduce (aggregate) → Output
+S3: foodfacts.csv (1 TB)
+  ├── Split 0 (128MB) → Mapper 0 → (barcode₁, PRODUCT|...), (barcode₁, REL|allergens|milk)
+  ├── Split 1 (128MB) → Mapper 1 → (barcode₂, PRODUCT|...), (barcode₂, REL|countries|en:france)
+  ├── ...
+  └── Split N (128MB) → Mapper N → ...
+                                ↓ Shuffle & Sort (group by barcode)
+  ├── Reducer 0 → barcode₁: full Product aggregate → Postgres
+  ├── Reducer 1 → barcode₂: full Product aggregate → Postgres
+  └── ...
 ```
 
-1. **Map** — Each worker takes a row and emits `(key, value)` pairs (e.g., `(tag, barcode)`)
-2. **Shuffle & Sort** — The framework groups all values by key across the cluster
-3. **Reduce** — Each worker receives a key and all its values, producing the final result
+1. **Map** — `CsvProductParser` parses each row into a `Product` domain object. Mapper emits `(barcode, data)` pairs keyed by barcode for even distribution
+2. **Shuffle & Sort** — Hadoop groups all values for the same barcode onto one reducer
+3. **Reduce** — Rebuilds the full `Product` aggregate, calls `NormalizationService.normalize()` to persist to Postgres
 
 ## Comparison at a Glance
 
@@ -68,10 +78,11 @@ cd mapreduce-ddd
 mvn clean package
 
 # Run OpenFoodFacts normalization (writes to Postgres)
+# Run OpenFoodFacts normalization from S3 (writes to Postgres)
 hadoop jar target/mapreduce-ddd-1.0.0.jar \
   com.pipeline.infrastructure.mapreduce.NormalizationJobRunner \
   -Dpipeline.num.reducers=64 \
-  hdfs:///data/foodfacts.csv hdfs:///output/normalized
+  s3a://pipeline-data/foodfacts.csv s3a://pipeline-data/output/
 ```
 
 ### Spark (Python)
