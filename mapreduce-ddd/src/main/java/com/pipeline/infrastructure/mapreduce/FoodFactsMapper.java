@@ -9,7 +9,7 @@ import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
-import com.pipeline.application.parser.CsvProductParser;
+import com.pipeline.domain.parser.CsvProductParser;
 import com.pipeline.domain.model.Product;
 
 /**

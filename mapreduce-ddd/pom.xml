@@ -59,7 +59,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.pipeline.infrastructure.mapreduce.NormalizationJobRunner</mainClass>
+                            <mainClass>com.pipeline.application.NormalizationJob</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

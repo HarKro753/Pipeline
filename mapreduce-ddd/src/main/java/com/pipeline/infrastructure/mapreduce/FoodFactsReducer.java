@@ -1,38 +1,34 @@
 package com.pipeline.infrastructure.mapreduce;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
 
-import com.pipeline.application.service.NormalizationService;
 import com.pipeline.domain.model.Product;
 import com.pipeline.domain.repository.ProductRelationRepository;
+import com.pipeline.domain.repository.ProductRepository;
 import com.pipeline.domain.valueobject.Barcode;
 import com.pipeline.domain.valueobject.NutriScore;
 import com.pipeline.domain.valueobject.NutrientInfo;
 import com.pipeline.infrastructure.config.DatabaseConfig;
 import com.pipeline.infrastructure.persistence.*;
 
-/**
- * Thin reducer: receives all data for a single barcode, reconstructs the full
- * Product aggregate, and delegates persistence to NormalizationService.
- *
- * DB connections are created once in setup() and reused across all reduce() calls
- * within this reducer task — critical for TB-scale throughput.
- */
 public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
 
-    private NormalizationService normalizationService;
+    private ProductRepository productRepository;
+    private Map<String, ProductRelationRepository> relationRepositories;
     private DatabaseConfig config;
 
     @Override
     protected void setup(Context context) {
         config = new DatabaseConfig(context.getConfiguration());
+        productRepository = new PostgresProductRepository(config);
 
-        Map<String, ProductRelationRepository> repos = Map.ofEntries(
+        relationRepositories = Map.ofEntries(
                 Map.entry("packaging", new PostgresProductPackagingRepository(config)),
                 Map.entry("brands", new PostgresProductBrandRepository(config)),
                 Map.entry("categories", new PostgresProductCategoryRepository(config)),
@@ -47,11 +43,6 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
                 Map.entry("states", new PostgresProductStateRepository(config)),
                 Map.entry("nutrient_levels", new PostgresProductNutrientLevelRepository(config))
         );
-
-        normalizationService = new NormalizationService(
-                new PostgresProductRepository(config),
-                repos
-        );
     }
 
     @Override
@@ -61,7 +52,6 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
         String barcode = barcodeKey.toString();
         Product product = null;
 
-        // First pass: reconstruct the full Product aggregate from all emitted values
         for (Text val : values) {
             String line = val.toString();
 
@@ -82,10 +72,7 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
                         )
                 );
             } else if (line.startsWith("REL|")) {
-                // Buffer relations — will attach to product after loop
-                // Since Hadoop only allows one pass over values, we handle inline
                 if (product == null) {
-                    // Relations arrived before PRODUCT — create shell
                     product = new Product(
                             new Barcode(barcode), null, null, null,
                             new NutriScore(0, null), 0,
@@ -99,10 +86,21 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
             }
         }
 
-        if (product != null) {
-            normalizationService.normalize(product);
-            context.write(new Text(barcode), NullWritable.get());
+        if (product == null) return;
+
+        // Persist product
+        productRepository.save(product);
+
+        // Persist all relations
+        for (Map.Entry<String, List<String>> entry : product.getRelations().entrySet()) {
+            ProductRelationRepository repo = relationRepositories.get(entry.getKey());
+            if (repo == null) continue;
+            for (String value : entry.getValue()) {
+                repo.save(barcode, value);
+            }
         }
+
+        context.write(new Text(barcode), NullWritable.get());
     }
 
     @Override

@@ -80,7 +80,7 @@ mvn clean package
 # Run OpenFoodFacts normalization (writes to Postgres)
 # Run OpenFoodFacts normalization from S3 (writes to Postgres)
 hadoop jar target/mapreduce-ddd-1.0.0.jar \
-  com.pipeline.infrastructure.mapreduce.NormalizationJobRunner \
+  com.pipeline.application.NormalizationJob \
   -Dpipeline.num.reducers=64 \
   s3a://pipeline-data/foodfacts.csv s3a://pipeline-data/output/
 ```

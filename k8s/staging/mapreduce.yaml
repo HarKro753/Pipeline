@@ -166,7 +166,7 @@ spec:
                 - hadoop
                 - jar
                 - /app/mapreduce-ddd-1.0.0.jar
-                - com.pipeline.infrastructure.mapreduce.NormalizationJobRunner
+                - com.pipeline.application.NormalizationJob
                 - s3a://pipeline-data-staging/foodfacts.csv
                 - s3a://pipeline-data-staging/output/
               env:

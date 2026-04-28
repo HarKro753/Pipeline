@@ -1,4 +1,4 @@
-package com.pipeline.infrastructure.mapreduce;
+package com.pipeline.application;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
@@ -14,42 +14,36 @@ import org.apache.hadoop.util.ToolRunner;
 
 import io.github.cdimascio.dotenv.Dotenv;
 
+import com.pipeline.infrastructure.mapreduce.FoodFactsMapper;
+import com.pipeline.infrastructure.mapreduce.FoodFactsReducer;
+
 /**
- * Entrypoint for the OpenFoodFacts normalization MapReduce job.
+ * Single entrypoint for the OpenFoodFacts normalization pipeline.
  *
- * How splitting works at TB scale:
- * - Hadoop's TextInputFormat splits the input file into InputSplits (default 128MB each)
- * - For a 1TB CSV, this creates ~8000 splits → 8000 mappers running in parallel
- * - Each mapper only downloads and processes its own 128MB chunk, NOT the entire file
- * - S3A filesystem handles range requests so each mapper reads only its byte range
- * - TextInputFormat respects line boundaries across splits automatically
+ * Hadoop splits the input into 128MB InputSplits — each mapper processes
+ * only its chunk via S3 range requests. A 1TB file creates ~8000 parallel mappers.
  *
  * Usage:
  *   hadoop jar mapreduce-ddd-1.0.0.jar \
- *     com.pipeline.infrastructure.mapreduce.NormalizationJobRunner \
- *     s3a://pipeline-data/foodfacts.csv s3a://pipeline-data/output/
+ *     com.pipeline.application.NormalizationJob \
+ *     s3a://bucket/foodfacts.csv s3a://bucket/output/
  */
-public class NormalizationJobRunner extends Configured implements Tool {
+public class NormalizationJob extends Configured implements Tool {
 
     @Override
     public int run(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Usage: NormalizationJobRunner <input-path> <output-path>");
-            System.err.println("  input-path:  s3a://bucket/path/to/foodfacts.csv");
-            System.err.println("  output-path: s3a://bucket/path/to/output/");
+            System.err.println("Usage: NormalizationJob <input-path> <output-path>");
+            System.err.println("  input-path:  s3a://bucket/foodfacts.csv");
+            System.err.println("  output-path: s3a://bucket/output/");
             return 1;
         }
 
         Configuration conf = getConf();
-
-        // Load S3 credentials from .env if not already set via Hadoop config
-        configureS3(conf);
-
-        // Pass DB credentials to mappers/reducers via Hadoop configuration
-        configureDatabase(conf);
+        loadEnvConfig(conf);
 
         Job job = Job.getInstance(conf, "openfoodfacts-normalization");
-        job.setJarByClass(NormalizationJobRunner.class);
+        job.setJarByClass(NormalizationJob.class);
 
         job.setMapperClass(FoodFactsMapper.class);
         job.setReducerClass(FoodFactsReducer.class);
@@ -62,7 +56,6 @@ public class NormalizationJobRunner extends Configured implements Tool {
         job.setInputFormatClass(TextInputFormat.class);
         job.setOutputFormatClass(TextOutputFormat.class);
 
-        // Parallelism: 64 reducers by default, tune based on cluster + DB capacity
         job.setNumReduceTasks(conf.getInt("pipeline.num.reducers", 64));
 
         FileInputFormat.addInputPath(job, new Path(args[0]));
@@ -71,12 +64,22 @@ public class NormalizationJobRunner extends Configured implements Tool {
         return job.waitForCompletion(true) ? 0 : 1;
     }
 
-    private void configureS3(Configuration conf) {
-        Dotenv dotenv = Dotenv.configure().directory("../").filename(".env").ignoreIfMissing().load();
+    private void loadEnvConfig(Configuration conf) {
+        Dotenv dotenv = Dotenv.configure()
+                .directory("../")
+                .filename(".env")
+                .ignoreIfMissing()
+                .load();
 
-        String endpoint = dotenv.get("S3_ENDPOINT");
+        // Database
+        setIfPresent(conf, "pipeline.db.url", dotenv.get("POSTGRES_URL"));
+        setIfPresent(conf, "pipeline.db.user", dotenv.get("POSTGRES_USER"));
+        setIfPresent(conf, "pipeline.db.password", dotenv.get("POSTGRES_PASSWORD"));
+
+        // S3
         String accessKey = dotenv.get("S3_ACCESS_KEY");
         String secretKey = dotenv.get("S3_SECRET_KEY");
+        String endpoint = dotenv.get("S3_ENDPOINT");
 
         if (accessKey != null && conf.get("fs.s3a.access.key") == null) {
             conf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
@@ -89,22 +92,14 @@ public class NormalizationJobRunner extends Configured implements Tool {
         }
     }
 
-    private void configureDatabase(Configuration conf) {
-        Dotenv dotenv = Dotenv.configure().directory("../").filename(".env").ignoreIfMissing().load();
-
-        String dbUrl = dotenv.get("POSTGRES_URL");
-        String dbUser = dotenv.get("POSTGRES_USER");
-        String dbPassword = dotenv.get("POSTGRES_PASSWORD");
-
-        if (dbUrl != null) {
-            conf.set("pipeline.db.url", dbUrl);
-            conf.set("pipeline.db.user", dbUser);
-            conf.set("pipeline.db.password", dbPassword);
+    private void setIfPresent(Configuration conf, String key, String value) {
+        if (value != null) {
+            conf.set(key, value);
         }
     }
 
     public static void main(String[] args) throws Exception {
-        int exitCode = ToolRunner.run(new Configuration(), new NormalizationJobRunner(), args);
+        int exitCode = ToolRunner.run(new Configuration(), new NormalizationJob(), args);
         System.exit(exitCode);
     }
 }
