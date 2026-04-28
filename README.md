@@ -69,8 +69,9 @@ mvn clean package
 
 # Run OpenFoodFacts normalization (writes to Postgres)
 hadoop jar target/mapreduce-ddd-1.0.0.jar \
-  com.pipeline.application.service.NormalizationService \
-  input/foodfacts.csv output/normalized
+  com.pipeline.infrastructure.mapreduce.NormalizationJobRunner \
+  -Dpipeline.num.reducers=64 \
+  hdfs:///data/foodfacts.csv hdfs:///output/normalized
 ```
 
 ### Spark (Python)

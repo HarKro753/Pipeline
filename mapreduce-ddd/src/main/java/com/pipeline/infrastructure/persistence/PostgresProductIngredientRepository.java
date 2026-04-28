@@ -20,11 +20,13 @@ public class PostgresProductIngredientRepository implements ProductIngredientRep
 
     @Override
     public void save(String productBarcode, String value) {
-        try (Connection conn = config.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(SQL)) {
-            stmt.setString(1, productBarcode);
-            stmt.setString(2, value.trim().toLowerCase());
-            stmt.executeUpdate();
+        try {
+            Connection conn = config.getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(SQL)) {
+                stmt.setString(1, productBarcode);
+                stmt.setString(2, value.trim().toLowerCase());
+                stmt.executeUpdate();
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to save to product_ingredients: " + value, e);
         }

@@ -53,7 +53,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.pipeline.application.service.NormalizationService</mainClass>
+                            <mainClass>com.pipeline.infrastructure.mapreduce.NormalizationJobRunner</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

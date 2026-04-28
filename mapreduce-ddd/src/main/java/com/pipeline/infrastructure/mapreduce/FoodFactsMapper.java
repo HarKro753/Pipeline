@@ -12,6 +12,14 @@ import org.apache.hadoop.mapreduce.Mapper;
 import com.pipeline.application.parser.CsvProductParser;
 import com.pipeline.domain.model.Product;
 
+/**
+ * Thin mapper: parses CSV via CsvProductParser, then emits all data keyed by barcode.
+ * Keying by barcode ensures even distribution across reducers at TB scale.
+ *
+ * Emits:
+ *   (barcode, "PRODUCT|name|genericName|quantity|nutriScore|grade|nova|kcal|fat|satFat|sugars|salt|proteins|fiber")
+ *   (barcode, "REL|category|value")
+ */
 public class FoodFactsMapper extends Mapper<LongWritable, Text, Text, Text> {
 
     private final CsvProductParser parser = new CsvProductParser();
@@ -22,11 +30,10 @@ public class FoodFactsMapper extends Mapper<LongWritable, Text, Text, Text> {
         if (parsed.isEmpty()) return;
 
         Product product = parsed.get();
-        String barcode = product.getBarcode().getValue();
+        Text barcodeKey = new Text(product.getBarcode().getValue());
 
-        // Emit product scalar data
-        String productData = String.join("|",
-                barcode,
+        // Emit scalar product data
+        String productData = "PRODUCT|" + String.join("|",
                 product.getName(),
                 product.getGenericName(),
                 product.getQuantity(),
@@ -41,13 +48,13 @@ public class FoodFactsMapper extends Mapper<LongWritable, Text, Text, Text> {
                 String.valueOf(product.getNutrientInfo().getProteins()),
                 String.valueOf(product.getNutrientInfo().getFiber())
         );
-        context.write(new Text("PRODUCT"), new Text(productData));
+        context.write(barcodeKey, new Text(productData));
 
-        // Emit each relation from the domain model
+        // Emit each relation value
         for (Map.Entry<String, List<String>> entry : product.getRelations().entrySet()) {
             String category = entry.getKey();
             for (String val : entry.getValue()) {
-                context.write(new Text(category), new Text(barcode + "|" + val));
+                context.write(barcodeKey, new Text("REL|" + category + "|" + val));
             }
         }
     }

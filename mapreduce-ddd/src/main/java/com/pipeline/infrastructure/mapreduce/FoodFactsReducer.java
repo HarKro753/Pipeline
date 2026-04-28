@@ -7,7 +7,6 @@ import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
 
-import com.pipeline.application.parser.CsvProductParser;
 import com.pipeline.application.service.NormalizationService;
 import com.pipeline.domain.model.Product;
 import com.pipeline.domain.repository.ProductRelationRepository;
@@ -17,13 +16,21 @@ import com.pipeline.domain.valueobject.NutrientInfo;
 import com.pipeline.infrastructure.config.DatabaseConfig;
 import com.pipeline.infrastructure.persistence.*;
 
+/**
+ * Thin reducer: receives all data for a single barcode, reconstructs the full
+ * Product aggregate, and delegates persistence to NormalizationService.
+ *
+ * DB connections are created once in setup() and reused across all reduce() calls
+ * within this reducer task — critical for TB-scale throughput.
+ */
 public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
 
     private NormalizationService normalizationService;
+    private DatabaseConfig config;
 
     @Override
     protected void setup(Context context) {
-        DatabaseConfig config = new DatabaseConfig();
+        config = new DatabaseConfig();
 
         Map<String, ProductRelationRepository> repos = Map.ofEntries(
                 Map.entry("packaging", new PostgresProductPackagingRepository(config)),
@@ -48,47 +55,59 @@ public class FoodFactsReducer extends Reducer<Text, Text, Text, NullWritable> {
     }
 
     @Override
-    public void reduce(Text key, Iterable<Text> values, Context context)
+    public void reduce(Text barcodeKey, Iterable<Text> values, Context context)
             throws IOException, InterruptedException {
-        String keyStr = key.toString();
 
-        if (keyStr.equals("PRODUCT")) {
-            for (Text val : values) {
-                String[] p = val.toString().split("\\|", -1);
-                if (p.length < 14) continue;
+        String barcode = barcodeKey.toString();
+        Product product = null;
 
-                Product product = new Product(
-                        new Barcode(p[0]),
-                        p[1], p[2], p[3],
-                        new NutriScore(parseIntSafe(p[4]), p[5].isBlank() ? null : p[5]),
-                        parseIntSafe(p[6]),
+        // First pass: reconstruct the full Product aggregate from all emitted values
+        for (Text val : values) {
+            String line = val.toString();
+
+            if (line.startsWith("PRODUCT|")) {
+                String[] p = line.substring(8).split("\\|", -1);
+                if (p.length < 13) continue;
+
+                product = new Product(
+                        new Barcode(barcode),
+                        p[0], p[1], p[2],
+                        new NutriScore(parseIntSafe(p[3]), p[4].isBlank() ? null : p[4]),
+                        parseIntSafe(p[5]),
                         new NutrientInfo(
-                                parseDoubleSafe(p[7]), parseDoubleSafe(p[8]),
-                                parseDoubleSafe(p[9]), parseDoubleSafe(p[10]),
-                                parseDoubleSafe(p[11]), parseDoubleSafe(p[12]),
-                                parseDoubleSafe(p[13])
+                                parseDoubleSafe(p[6]), parseDoubleSafe(p[7]),
+                                parseDoubleSafe(p[8]), parseDoubleSafe(p[9]),
+                                parseDoubleSafe(p[10]), parseDoubleSafe(p[11]),
+                                parseDoubleSafe(p[12])
                         )
                 );
-                // Product without relations — just persist scalar data
-                normalizationService.normalize(product);
-                context.write(val, NullWritable.get());
+            } else if (line.startsWith("REL|")) {
+                // Buffer relations — will attach to product after loop
+                // Since Hadoop only allows one pass over values, we handle inline
+                if (product == null) {
+                    // Relations arrived before PRODUCT — create shell
+                    product = new Product(
+                            new Barcode(barcode), null, null, null,
+                            new NutriScore(0, null), 0,
+                            new NutrientInfo(0, 0, 0, 0, 0, 0, 0)
+                    );
+                }
+                String[] parts = line.substring(4).split("\\|", 2);
+                if (parts.length == 2) {
+                    product.addRelation(parts[0], parts[1]);
+                }
             }
-        } else {
-            // Relation category — rebuild a minimal product per barcode and normalize
-            for (Text val : values) {
-                String[] parts = val.toString().split("\\|", 2);
-                if (parts.length < 2) continue;
-
-                Product product = new Product(
-                        new Barcode(parts[0]), null, null, null,
-                        new NutriScore(0, null), 0,
-                        new NutrientInfo(0, 0, 0, 0, 0, 0, 0)
-                );
-                product.addRelation(keyStr, parts[1]);
-                normalizationService.normalize(product);
-            }
-            context.write(new Text(keyStr + " done"), NullWritable.get());
         }
+
+        if (product != null) {
+            normalizationService.normalize(product);
+            context.write(new Text(barcode), NullWritable.get());
+        }
+    }
+
+    @Override
+    protected void cleanup(Context context) {
+        config.close();
     }
 
     private static int parseIntSafe(String s) {
