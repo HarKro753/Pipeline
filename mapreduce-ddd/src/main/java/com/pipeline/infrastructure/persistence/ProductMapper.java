@@ -15,8 +15,11 @@ class ProductMapper {
         return new Product(
                 new Barcode(rs.getString("barcode")),
                 rs.getString("name"),
-                rs.getString("brand"),
+                rs.getString("brand_owner"),
+                rs.getString("generic_name"),
+                rs.getString("quantity"),
                 new NutriScore(rs.getInt("nutriscore_score"), rs.getString("nutriscore_grade")),
+                rs.getInt("nova_group"),
                 new NutrientInfo(
                         rs.getDouble("energy_kcal"),
                         rs.getDouble("fat"),

@@ -1,49 +1,37 @@
 package com.pipeline.application.service;
 
-import java.util.Arrays;
-import java.util.List;
+import com.pipeline.infrastructure.mapreduce.FoodFactsMapper;
+import com.pipeline.infrastructure.mapreduce.FoodFactsReducer;
 
-import com.pipeline.domain.model.Product;
-import com.pipeline.domain.model.Tag;
-import com.pipeline.domain.repository.ProductRepository;
-import com.pipeline.domain.repository.TagRepository;
-import com.pipeline.domain.valueobject.Barcode;
-import com.pipeline.domain.valueobject.NutriScore;
-import com.pipeline.domain.valueobject.NutrientInfo;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class NormalizationService {
 
-    private final ProductRepository productRepository;
-    private final TagRepository tagRepository;
-
-    public NormalizationService(ProductRepository productRepository, TagRepository tagRepository) {
-        this.productRepository = productRepository;
-        this.tagRepository = tagRepository;
-    }
-
-    public void normalizeAndPersist(String barcode, String name, String brand,
-                                     int nutriScoreValue, String nutriGrade,
-                                     double energyKcal, double fat, double saturatedFat,
-                                     double sugars, double salt, double proteins, double fiber,
-                                     String tagsRaw) {
-        Barcode code = new Barcode(barcode);
-        NutriScore nutriScore = new NutriScore(nutriScoreValue, nutriGrade);
-        NutrientInfo nutrients = new NutrientInfo(energyKcal, fat, saturatedFat, sugars, salt, proteins, fiber);
-
-        List<String> tagNames = Arrays.stream(tagsRaw.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-
-        Product product = new Product(code, name, brand, nutriScore, nutrients, List.of());
-        tagNames.forEach(product::addTag);
-
-        productRepository.save(product);
-
-        for (String tagName : tagNames) {
-            Tag tag = tagRepository.findByName(tagName)
-                    .orElseGet(() -> tagRepository.save(new Tag(tagName)));
-            tagRepository.saveProductTagRelation(barcode, tag.getId());
+    public static void main(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.err.println("Usage: NormalizationService <input-path> <output-path>");
+            System.exit(1);
         }
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "openfoodfacts-normalization");
+
+        job.setJarByClass(NormalizationService.class);
+        job.setMapperClass(FoodFactsMapper.class);
+        job.setReducerClass(FoodFactsReducer.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        boolean success = job.waitForCompletion(true);
+        System.exit(success ? 0 : 1);
     }
 }

@@ -105,9 +105,11 @@ POSTGRES_PASSWORD=your_password
 CREATE TABLE products (
     barcode VARCHAR(14) PRIMARY KEY,
     name TEXT,
-    brand TEXT,
+    generic_name TEXT,
+    quantity TEXT,
     nutriscore_score INT,
     nutriscore_grade VARCHAR(1),
+    nova_group INT,
     energy_kcal DOUBLE PRECISION,
     fat DOUBLE PRECISION,
     saturated_fat DOUBLE PRECISION,
@@ -117,16 +119,20 @@ CREATE TABLE products (
     fiber DOUBLE PRECISION
 );
 
-CREATE TABLE tags (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL
-);
-
-CREATE TABLE product_tags (
-    product_barcode VARCHAR(14) REFERENCES products(barcode),
-    tag_id BIGINT REFERENCES tags(id),
-    PRIMARY KEY (product_barcode, tag_id)
-);
+-- Each comma-separated CSV column gets its own relation table
+CREATE TABLE product_packaging        (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_brands           (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_categories       (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_origins          (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_labels           (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_countries        (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_ingredients      (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_ingredients_analysis (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_allergens        (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_traces           (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_additives        (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_states           (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
+CREATE TABLE product_nutrient_levels  (id SERIAL PRIMARY KEY, product_barcode VARCHAR(14) REFERENCES products(barcode), value TEXT NOT NULL, UNIQUE(product_barcode, value));
 ```
 
 ## Prerequisites
