@@ -6,15 +6,6 @@ import java.sql.SQLException;
 
 import org.apache.hadoop.conf.Configuration;
 
-/**
- * Loads Postgres connection settings from Hadoop Configuration.
- *
- * The NormalizationJobRunner reads .env on the driver node and injects
- * credentials into Hadoop Configuration, which is then serialized and
- * distributed to all mapper/reducer tasks across the cluster.
- *
- * Reuses a single connection per reducer task to avoid connection churn at TB scale.
- */
 public class DatabaseConfig {
 
     private final String url;
@@ -36,14 +27,23 @@ public class DatabaseConfig {
     public synchronized Connection getConnection() throws SQLException {
         if (cachedConnection == null || cachedConnection.isClosed()) {
             cachedConnection = DriverManager.getConnection(url, user, password);
-            cachedConnection.setAutoCommit(true);
+            cachedConnection.setAutoCommit(false);
         }
         return cachedConnection;
     }
 
+    public synchronized void commit() throws SQLException {
+        if (cachedConnection != null && !cachedConnection.isClosed()) {
+            cachedConnection.commit();
+        }
+    }
+
     public synchronized void close() {
         if (cachedConnection != null) {
-            try { cachedConnection.close(); } catch (SQLException ignored) {}
+            try {
+                cachedConnection.commit();
+                cachedConnection.close();
+            } catch (SQLException ignored) {}
             cachedConnection = null;
         }
     }

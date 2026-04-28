@@ -9,18 +9,12 @@ import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
-import com.pipeline.domain.parser.CsvProductParser;
 import com.pipeline.domain.model.Product;
+import com.pipeline.domain.parser.CsvProductParser;
 
-/**
- * Thin mapper: parses CSV via CsvProductParser, then emits all data keyed by barcode.
- * Keying by barcode ensures even distribution across reducers at TB scale.
- *
- * Emits:
- *   (barcode, "PRODUCT|name|genericName|quantity|nutriScore|grade|nova|kcal|fat|satFat|sugars|salt|proteins|fiber")
- *   (barcode, "REL|category|value")
- */
 public class FoodFactsMapper extends Mapper<LongWritable, Text, Text, Text> {
+
+    private static final char DELIM = '\t';
 
     private final CsvProductParser parser = new CsvProductParser();
 
@@ -32,30 +26,34 @@ public class FoodFactsMapper extends Mapper<LongWritable, Text, Text, Text> {
         Product product = parsed.get();
         Text barcodeKey = new Text(product.getBarcode().getValue());
 
-        // Emit scalar product data
-        String productData = "PRODUCT|" + String.join("|",
-                product.getName(),
-                product.getGenericName(),
-                product.getQuantity(),
-                String.valueOf(product.getNutriScore().getScore()),
-                product.getNutriScore().getGrade() != null ? product.getNutriScore().getGrade() : "",
-                String.valueOf(product.getNovaGroup()),
-                String.valueOf(product.getNutrientInfo().getEnergyKcal()),
-                String.valueOf(product.getNutrientInfo().getFat()),
-                String.valueOf(product.getNutrientInfo().getSaturatedFat()),
-                String.valueOf(product.getNutrientInfo().getSugars()),
-                String.valueOf(product.getNutrientInfo().getSalt()),
-                String.valueOf(product.getNutrientInfo().getProteins()),
-                String.valueOf(product.getNutrientInfo().getFiber())
-        );
+        // Emit scalar product data with tab delimiter
+        String productData = "PRODUCT" + DELIM
+                + sanitize(product.getName()) + DELIM
+                + sanitize(product.getGenericName()) + DELIM
+                + sanitize(product.getQuantity()) + DELIM
+                + product.getNutriScore().getScore() + DELIM
+                + (product.getNutriScore().getGrade() != null ? product.getNutriScore().getGrade() : "") + DELIM
+                + product.getNovaGroup() + DELIM
+                + product.getNutrientInfo().getEnergyKcal() + DELIM
+                + product.getNutrientInfo().getFat() + DELIM
+                + product.getNutrientInfo().getSaturatedFat() + DELIM
+                + product.getNutrientInfo().getSugars() + DELIM
+                + product.getNutrientInfo().getSalt() + DELIM
+                + product.getNutrientInfo().getProteins() + DELIM
+                + product.getNutrientInfo().getFiber();
         context.write(barcodeKey, new Text(productData));
 
         // Emit each relation value
         for (Map.Entry<String, List<String>> entry : product.getRelations().entrySet()) {
             String category = entry.getKey();
             for (String val : entry.getValue()) {
-                context.write(barcodeKey, new Text("REL|" + category + "|" + val));
+                context.write(barcodeKey, new Text("REL" + DELIM + category + DELIM + sanitize(val)));
             }
         }
+    }
+
+    private static String sanitize(String value) {
+        if (value == null) return "";
+        return value.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
     }
 }
