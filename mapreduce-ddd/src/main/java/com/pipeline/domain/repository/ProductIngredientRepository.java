@@ -1,5 +1,4 @@
 package com.pipeline.domain.repository;
 
-public interface ProductIngredientRepository {
-    void save(String productBarcode, String value);
+public interface ProductIngredientRepository extends ProductRelationRepository {
 }

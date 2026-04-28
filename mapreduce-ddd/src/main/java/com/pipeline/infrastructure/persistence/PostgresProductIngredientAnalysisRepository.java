@@ -9,7 +9,8 @@ import com.pipeline.infrastructure.config.DatabaseConfig;
 
 public class PostgresProductIngredientAnalysisRepository implements ProductIngredientAnalysisRepository {
 
-    private static final String TABLE = "product_ingredients_analysis";
+    private static final String SQL =
+            "INSERT INTO product_ingredients_analysis (product_barcode, value) VALUES (?, ?) ON CONFLICT DO NOTHING";
 
     private final DatabaseConfig config;
 
@@ -19,16 +20,13 @@ public class PostgresProductIngredientAnalysisRepository implements ProductIngre
 
     @Override
     public void save(String productBarcode, String value) {
-        String sql = "INSERT INTO " + TABLE
-                + " (product_barcode, value) VALUES (?, ?) ON CONFLICT DO NOTHING";
-
         try (Connection conn = config.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(SQL)) {
             stmt.setString(1, productBarcode);
             stmt.setString(2, value.trim().toLowerCase());
             stmt.executeUpdate();
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to save to " + TABLE + ": " + value, e);
+            throw new RuntimeException("Failed to save to product_ingredients_analysis: " + value, e);
         }
     }
 }

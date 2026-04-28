@@ -1,37 +1,39 @@
 package com.pipeline.application.service;
 
-import com.pipeline.infrastructure.mapreduce.FoodFactsMapper;
-import com.pipeline.infrastructure.mapreduce.FoodFactsReducer;
+import java.util.List;
+import java.util.Map;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
-import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import com.pipeline.domain.model.Product;
+import com.pipeline.domain.repository.*;
 
 public class NormalizationService {
 
-    public static void main(String[] args) throws Exception {
-        if (args.length < 2) {
-            System.err.println("Usage: NormalizationService <input-path> <output-path>");
-            System.exit(1);
+    private final ProductRepository productRepository;
+    private final Map<String, ProductRelationRepository> relationRepositories;
+
+    public NormalizationService(ProductRepository productRepository,
+                                Map<String, ProductRelationRepository> relationRepositories) {
+        this.productRepository = productRepository;
+        this.relationRepositories = relationRepositories;
+    }
+
+    public void normalize(Product product) {
+        productRepository.save(product);
+
+        String barcode = product.getBarcode().getValue();
+
+        for (Map.Entry<String, List<String>> entry : product.getRelations().entrySet()) {
+            String category = entry.getKey();
+            List<String> values = entry.getValue();
+
+            ProductRelationRepository repo = relationRepositories.get(category);
+            if (repo == null) {
+                throw new IllegalStateException("No repository registered for category: " + category);
+            }
+
+            for (String value : values) {
+                repo.save(barcode, value);
+            }
         }
-
-        Configuration conf = new Configuration();
-        Job job = Job.getInstance(conf, "openfoodfacts-normalization");
-
-        job.setJarByClass(NormalizationService.class);
-        job.setMapperClass(FoodFactsMapper.class);
-        job.setReducerClass(FoodFactsReducer.class);
-
-        job.setOutputKeyClass(Text.class);
-        job.setOutputValueClass(Text.class);
-
-        FileInputFormat.addInputPath(job, new Path(args[0]));
-        FileOutputFormat.setOutputPath(job, new Path(args[1]));
-
-        boolean success = job.waitForCompletion(true);
-        System.exit(success ? 0 : 1);
     }
 }
